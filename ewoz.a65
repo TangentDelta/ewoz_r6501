@@ -7,9 +7,16 @@
 ;
 ;Customized for Glitch Works R65X1Q SBC.
 ;
+;Modified to use a Zilog Z85C30 SCC
+;
 ;Initial R6501 work by TangentDelta:
 ;    http://www.tangentideas.info/
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;System Hardware Equates
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+IOPAGE		= $EF00		;R65X1Q SBC Glitchbus I/O page
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Rockwell 6501/6511 Equates
@@ -26,6 +33,13 @@ LATCHAL		= $18		;Lower Latch A (write)
 LATCHAH		= $19		;Upper Latch A (write)
 COUNTAH		= $19		;Upper Counter A (read)
 COUNTAL		= $1A		;Lower Counter A (read)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;Zilog SCC Equates
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+SCCC		= IOPAGE+2	;SCC Command Register
+SCCD		= IOPAGE+3	;SCC Data Register
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;ASCII Equates
@@ -87,7 +101,7 @@ IN		= $0100		;Input buffer
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Adjust origin in the Makefile.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	.segment "ROM_CODE"
+	.segment "RAM_CODE"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;SETUP -- Start of the actual Woz monitor
@@ -106,31 +120,28 @@ SETUP:	SEI			;Disable interrupts
 	LDA	#$C0		;Configure Serial Communications Channel
 	STA	SCCR		;Enable XMTR/RCVR, async, 8N1
 
+	LDX	#((ISEND-INISCC))
+	LDY	#$00
+
+INILUP:	LDA	INISCC,Y	;Get the next SCC command byte in the sequence
+	STA	SCCC		;Store it to the SCC's command register
+	INY
+	DEX
+	BNE	INILUP		;Do it again if we haven't reached the end of the sequence (X = 0)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;SETBR -- Set the serial channel bitrate
 ;
 ;This routine reads from Port A and uses the value to 
-;select a bitrate for the internal serial channel. The 
-;speed will depend on the PHI2 frequency of the CPU:
+;select a bitrate for the current SCC channel. The 
+;speed will depend on the frequency supplied to the SCC
+;on the ~RTXC pins.
 ;
-;    Bit 5 | Bit 4 | PHI2 | Speed
-;    -------------------------------
-;      0   |   0   | 1MHz | 4800 bps
-;      0   |   1   | 1MHz | 2400 bps
-;      1   |   0   | 1MHz | 1200 bps
-;      1   |   1   | 1MHz |  300 bps
-;      0   |   0   | 2MHz | 9600 bps
-;      0   |   1   | 2MHz | 4800 bps
-;      1   |   0   | 2MHz | 2400 bps
-;      1   |   1   | 2MHz |  600 bps
 ;
 ;On the Glitch Works R65X1Q SBC, Port A bit 5 is connected
 ;to SW2 position 3, bit 4 is connect to SW2 position 4.
 ;
 ;The bitrate table is stored at BRTAB.
-;
-;Do note that 9600 bps at 1 MHz PHI2 (19200 at 2 MHz PHI2)
-;is too far off-spec for most serial devices.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 SETBR:	LDA	PORTA		;Get Port A contents
 	AND	#BRMASK		;Mask off bitrate switches 
@@ -139,12 +150,17 @@ SETBR:	LDA	PORTA		;Get Port A contents
 	ROR			;SW2-3 = bit 4, SW2-4 = bit 3
 	ROR			;SW2-3 = bit 3, SW2-4 = bit 2
 	ROR			;SW2-3 = bit 2, SW2-4 = bit 1
-	TAX			;X = low byte offset into BRTAB
-	LDA	BRTAB,X		;A = low byte of divisor
-	STA	LATCHAL		;Set Latch A low byte
-	INX			;X = high byte offset into BRTAB
-	LDA	BRTAB,X		;A = high byte of divisor
-	STA	LATCHAH		;Set Latch A high byte
+	TAX			;X = high byte offset into BRTAB
+	LDA	#$0C		;Select SCC WR13 (time constant high byte)
+	STA	SCCC
+	LDA	BRTAB,X		;A = high byte of time constant
+	STA	SCCC
+
+	INX			;X = low byte offset into BRTAB
+	LDA	#$0D		;Select SCC WR12 (time constant low byte)
+	STA	SCCC
+	LDA	BRTAB,X		;A = low byte of time constant
+	STA	SCCC
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;SETIRQ -- Set up the default IRQ handler vector
@@ -462,31 +478,29 @@ DEFIRQ:	PHA
 ;
 ;Blocks until a character is available.
 ;
-;pre: serial UART initialized
+;pre: SCC initialized
 ;post: A register contains received character
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-CIN:	LDA	SCSR		;See if we got an incoming char
+CIN:	LDA	SCCC		;See if we got an incoming char
 	AND	#$01		;Test bit 0
 	BEQ	CIN		;Wait for character
-	LDA	SCDAT		;Load char
+	LDA	SCCD		;Load char
 	RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;COUT -- Print a character to the console
 ;
-;Strips parity, preserves A register.
+;Preserves A register.
 ;
 ;pre: A register contains character to print
 ;post: character printed to console
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 COUT:	PHA			;Save A register
-COUT1:	LDA	SCSR		;Get UART status
-	AND	#$40		;Mask off XMTR Data Reg Empty
-	BEQ	COUT1		;Transmitter busy, wait
+COUT1:	LDA	SCCC		;Get SCC status
+	AND	#$04		;Mask off TX Buffer Empty bit
+	BEQ	COUT1		;Transmitter not empty, wait
 	PLA			;A = character to print
-	PHA			;Back on stack
-	STA	SCDAT		;Send it to UART
-	PLA			;A = original character to send
+	STA	SCCD		;Send it to SCC
 	RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -499,24 +513,46 @@ IERMSG:	.byte	$0d,$0a, "Intel Hex Imported with checksum error.", CR, LF, NULL
 IRQMSG:	.byte	$0d,$0a, "IRQ", CR, LF, NULL
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;Zilog SCC Init Sequence
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+INISCC:	.byte	$09,$C0		;Reset hardware
+
+	.byte	$04,$44
+	.byte	$03,$C1
+	.byte	$05,$EA
+
+	.byte	$0B,$56
+
+	;(4915200/(9600 baud)*2*(*16 clock divider))-2
+	.byte	$0C,$0E		;9600 baud
+	.byte	$0D,$00
+	;.byte	$0C,$06		;19200 baud
+	;.byte	$0D,$00
+	;.byte	$0C,$02		;38400 baud
+	;.byte	$0D,$00
+
+	.byte	$0E,$01
+
+	.byte	$0F,$00
+ISEND:				;Init sequence end pointer
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Serial Channel Bitrate Table
 ;
 ;See SETBR for usage. The values in this table are obtained
-;from the Rockwell R6501 One Chip Microprocessor datasheet.
 ;
-;Noted bitrates are for a 1 MHz PHI2 clock. Double them for
-;2 MHz PHI2 clock.
+;Noted bitrates are for a 4.9152MHz clock
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-BRTAB:	.word	$000C		;4800 bps
-	.word	$0019		;2400 bps
-	.word	$0033		;1200 bps
-	.word	$00CF		; 300 bps
+BRTAB:	;.word	$000E		;9600  bps
+	;.word	$0006		;19200 bps
+	.word	$0002		;38400 bps
+	.word	$0002		;38400 bps
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;NMI/Reset/IRQ Vectors
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	.segment "VECTORS"
-
-	.word	SETUP		;$FFFA/$FFFB = NMI
-	.word	SETUP		;$FFFC/$FFFD = RESET
-	.word	IRQ		;$FFFE/$FFFF = IRQ/BRK
+;	.segment "VECTORS"
+;
+;	.word	SETUP		;$FFFA/$FFFB = NMI
+;	.word	SETUP		;$FFFC/$FFFD = RESET
+;	.word	IRQ		;$FFFE/$FFFF = IRQ/BRK

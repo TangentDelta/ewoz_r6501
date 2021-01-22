@@ -12,7 +12,7 @@ RM		= rm
 all: ewoz.hex
 
 ewoz.hex: ewoz.bin
-	srec_cat ewoz.bin -binary -offset=0x8000 -o ewoz.hex -intel -address-length=2
+	srec_cat ewoz.bin -binary -offset=0x200 -o ewoz.hex -intel -address-length=2
 
 ewoz.bin: ewoz.o
 	$(CL) $(LFLAGS) -C gw-r65x1qsbc-1.cfg -o ewoz.bin ewoz.o
