@@ -23,4 +23,8 @@ ewoz.o: ewoz.a65
 clean:
 	$(RM) $(RMFLAGS) *.o *.bin *.hex *.lst
 
+copy: ewoz.bin
+	cp ewoz.bin ../r6501q_romfs/binaries/ewoz_ram.bin
+	
+
 distclean: clean

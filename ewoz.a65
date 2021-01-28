@@ -13,11 +13,17 @@
 ;    http://www.tangentideas.info/
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;System Hardware Equates
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-IOPAGE		= $EF00		;R65X1Q SBC Glitchbus I/O page
+.IFNDEF CONFIGURED	;Set default options if assembler wasn't passed any definitions
+	;I/O module selection
+	;Uncomment one of the desired I/O modules
+	IO_SCC = 1	;Zilog SCC Board
+	;IO_R65X1Q = 1	;Rockwell R65X1Q built-in I/O
 
+	;Running mode selection
+	;Uncomment one of the desired running modes
+	RUN_RAM = 1	;Loads into and runs from RAM. Doesn't perform cold boot operations
+	;RUN_ROM = 1	;Runs from ROM. Performs cold boot operations.
+.ENDIF
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Rockwell 6501/6511 Equates
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -33,13 +39,6 @@ LATCHAL		= $18		;Lower Latch A (write)
 LATCHAH		= $19		;Upper Latch A (write)
 COUNTAH		= $19		;Upper Counter A (read)
 COUNTAL		= $1A		;Lower Counter A (read)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Zilog SCC Equates
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-SCCC		= IOPAGE+0	;SCC Command Register A
-SCCD		= IOPAGE+1	;SCC Data Register A
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;ASCII Equates
@@ -58,9 +57,6 @@ CANCEL		= CTRLC		;ASCII code to use for cancelling current line
 
 MODVAL		= $0F		;Print MODVAL memory locations per line
 				;for EXAMINE
-
-SW2MASK		= $3F		;Mask for SW2 bits of Port A
-BRMASK		= $30		;Mask for SW2 positions 3 and 4
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Zero Page Storage
@@ -101,13 +97,13 @@ IN		= $0100		;Input buffer
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Adjust origin in the Makefile.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	.segment "RAM_CODE"
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;SETUP -- Start of the actual Woz monitor
-;
-;Falls through to SFTRST.
+;SETUP -- Perform cold boot operations
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+.IFDEF RUN_ROM
+.segment "ROM_CODE"
 SETUP:	SEI			;Disable interrupts
 	CLD			;Clear decimal arithmetic mode.
 	LDX	#$FF		;Set up stack pointer
@@ -117,53 +113,17 @@ SETUP:	SEI			;Disable interrupts
 	STA	MCR		;Port D tristate, Port B latch disabled, both
 				;timers in inverval mode.
 
-	LDA	#$C0		;Configure Serial Communications Channel
-	STA	SCCR		;Enable XMTR/RCVR, async, 8N1
+	JSR	IOINI		;Initialize the I/O module
 
-	LDX	#((ISEND-INISCC))
-	LDY	#$00
-
-INILUP:	LDA	INISCC,Y	;Get the next SCC command byte in the sequence
-	STA	SCCC		;Store it to the SCC's command register
-	INY
-	DEX
-	BNE	INILUP		;Do it again if we haven't reached the end of the sequence (X = 0)
+.ELSE
+.segment "RAM_CODE"
+.ENDIF
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;SETBR -- Set the serial channel bitrate
+;SETIRQ -- Set IRQ Vector
 ;
-;This routine reads from Port A and uses the value to 
-;select a bitrate for the current SCC channel. The 
-;speed will depend on the frequency supplied to the SCC
-;on the ~RTXC pins.
-;
-;
-;On the Glitch Works R65X1Q SBC, Port A bit 5 is connected
-;to SW2 position 3, bit 4 is connect to SW2 position 4.
-;
-;The bitrate table is stored at BRTAB.
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-SETBR:	LDA	PORTA		;Get Port A contents
-	AND	#BRMASK		;Mask off bitrate switches 
-				;SW2-3 = PA5, SW2-4 = PA4
-	CLC
-	ROR			;SW2-3 = bit 4, SW2-4 = bit 3
-	ROR			;SW2-3 = bit 3, SW2-4 = bit 2
-	ROR			;SW2-3 = bit 2, SW2-4 = bit 1
-	TAX			;X = high byte offset into BRTAB
-	LDA	#$0C		;Select SCC WR13 (time constant high byte)
-	STA	SCCC
-	LDA	BRTAB,X		;A = high byte of time constant
-	STA	SCCC
-
-	INX			;X = low byte offset into BRTAB
-	LDA	#$0D		;Select SCC WR12 (time constant low byte)
-	STA	SCCC
-	LDA	BRTAB,X		;A = low byte of time constant
-	STA	SCCC
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;SETIRQ -- Set up the default IRQ handler vector
+;Sets up the default user IRQ vector and display the
+;  initial sign-on message.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 SETIRQ:	LDA	#<DEFIRQ	;Initialize default IRQ handler
 	STA	USRIRQLO
@@ -473,88 +433,27 @@ DEFIRQ:	PHA
 	PLA
 	RTI
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;CIN -- Get a character from the console
-;
-;Blocks until a character is available.
-;
-;pre: SCC initialized
-;post: A register contains received character
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-CIN:	LDA	SCCC		;See if we got an incoming char
-	AND	#$01		;Test bit 0
-	BEQ	CIN		;Wait for character
-	LDA	SCCD		;Load char
-	RTS
+.IFDEF IO_SCC
+	.INCLUDE "IO_Modules/tan-glitchbus-scc_io.a65"
+.ENDIF
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;COUT -- Print a character to the console
-;
-;Preserves A register.
-;
-;pre: A register contains character to print
-;post: character printed to console
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-COUT:	PHA			;Save A register
-COUT1:	LDA	SCCC		;Get SCC status
-	AND	#$04		;Mask off TX Buffer Empty bit
-	BEQ	COUT1		;Transmitter not empty, wait
-	PLA			;A = character to print
-	STA	SCCD		;Send it to SCC
-	RTS
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Message Strings
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-LOGMSG:	.byte	$0d,$0a, "EWOZ 1.2 With SCC Support", CR, LF, NULL
+LOGMSG:	.byte	$0d,$0a, "EWOZ 1.2 "
+
+.IFDEF IO_SCC
+	.byte	"With SCC Support", CR, LF, NULL
+.ELSE
+	.byte	"for Glitch Works R65X1Q SBC", CR, LF, NULL
+.ENDIF
+
 ISTMSG:	.byte	$0d,$0a, "Start Hex code transfer", CR, LF, NULL
 IOKMSG:	.byte	$0d,$0a, "Hex Imported OK", CR, LF, NULL
 IERMSG:	.byte	$0d,$0a, "Hex Imported with checksum error", CR, LF, NULL
 IRQMSG:	.byte	$0d,$0a, "IRQ", CR, LF, NULL
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Zilog SCC Init Sequence
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INISCC:	.byte	$09,$C0		;Reset hardware
-
-	.byte	$04,$44
-	.byte	$03,$C1
-	.byte	$05,$EA
-
-	.byte	$0B,$56
-
-	
-	.byte	$0C,$0E		;9600 baud
-	.byte	$0D,$00
-	;.byte	$0C,$06		;19200 baud
-	;.byte	$0D,$00
-	;.byte	$0C,$02		;38400 baud
-	;.byte	$0D,$00
-
-	.byte	$0E,$01
-
-	.byte	$0F,$00
-ISEND:				;Init sequence end pointer
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Serial Channel Bitrate Table
-;
-;See SETBR for usage. The values in this table are obtained
-;  using the following formula:
-;  ;(SCK/BR*2*(D))-2
-;Where:
-;  SCK = Serial Clock (4.9152MHz)
-;  BR  = Desired Baudrate (9600 baud)
-;  D   = Clock Divider (/16)
-;
-;Noted bitrates are for a 4.9152MHz clock
-;
-;TODO: Have the assembler calculate these for me
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-BRTAB:	.word	$000E		;9600  bps
-	.word	$0006		;19200 bps
-	.word	$0002		;38400 bps
-	.word	$0002		;38400 bps
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;NMI/Reset/IRQ Vectors
