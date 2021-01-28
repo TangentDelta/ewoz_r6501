@@ -1,11 +1,13 @@
-Enhanced Woz Monitor for Rockwell R6501/R6511
----------------------------------------------
+Enhanced Woz Monitor for Rockwell R6501/R6511 With Zilog SCC
+------------------------------------------------------------
 
 This repository contains a version Steve Wozniak's ROM monitor for the 6502, ported to the Rockwell R6501 and R6511 single-chip microprocessors. These processors are 6502-like, but contain some significant differences:
 
 * Zero page is internal to the processor, and smaller than 256 bytes
 * I/O devices in zero page
 * Hardware stack in zero page, of limited size
+
+This version of the monitor has been modified to utilize a Zilog Z85C30 SCC for serial communications.
 
 ### Monitor Commands
 

@@ -37,8 +37,8 @@ COUNTAL		= $1A		;Lower Counter A (read)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Zilog SCC Equates
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-SCCC		= IOPAGE+2	;SCC Command Register
-SCCD		= IOPAGE+3	;SCC Data Register
+SCCC		= IOPAGE+0	;SCC Command Register A
+SCCD		= IOPAGE+1	;SCC Data Register A
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -506,10 +506,10 @@ COUT1:	LDA	SCCC		;Get SCC status
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Message Strings
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-LOGMSG:	.byte	$0d,$0a, "EWOZ 1.2 for Glitch Works R65X1Q SBC", CR, LF, NULL
-ISTMSG:	.byte	$0d,$0a, "Start Intel Hex code Transfer.", CR, LF, NULL
-IOKMSG:	.byte	$0d,$0a, "Intel Hex Imported OK.", CR, LF, NULL
-IERMSG:	.byte	$0d,$0a, "Intel Hex Imported with checksum error.", CR, LF, NULL
+LOGMSG:	.byte	$0d,$0a, "EWOZ 1.2 With SCC Support", CR, LF, NULL
+ISTMSG:	.byte	$0d,$0a, "Start Hex code transfer", CR, LF, NULL
+IOKMSG:	.byte	$0d,$0a, "Hex Imported OK", CR, LF, NULL
+IERMSG:	.byte	$0d,$0a, "Hex Imported with checksum error", CR, LF, NULL
 IRQMSG:	.byte	$0d,$0a, "IRQ", CR, LF, NULL
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -523,7 +523,7 @@ INISCC:	.byte	$09,$C0		;Reset hardware
 
 	.byte	$0B,$56
 
-	;(4915200/(9600 baud)*2*(*16 clock divider))-2
+	
 	.byte	$0C,$0E		;9600 baud
 	.byte	$0D,$00
 	;.byte	$0C,$06		;19200 baud
@@ -540,11 +540,19 @@ ISEND:				;Init sequence end pointer
 ;Serial Channel Bitrate Table
 ;
 ;See SETBR for usage. The values in this table are obtained
+;  using the following formula:
+;  ;(SCK/BR*2*(D))-2
+;Where:
+;  SCK = Serial Clock (4.9152MHz)
+;  BR  = Desired Baudrate (9600 baud)
+;  D   = Clock Divider (/16)
 ;
 ;Noted bitrates are for a 4.9152MHz clock
+;
+;TODO: Have the assembler calculate these for me
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-BRTAB:	;.word	$000E		;9600  bps
-	;.word	$0006		;19200 bps
+BRTAB:	.word	$000E		;9600  bps
+	.word	$0006		;19200 bps
 	.word	$0002		;38400 bps
 	.word	$0002		;38400 bps
 
