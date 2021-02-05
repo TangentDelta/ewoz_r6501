@@ -1,7 +1,7 @@
 SHELL		:= /bin/bash
 
 AFLAGS		= -t none
-LFLAGS		= -t none
+LFLAGS		= -t none -m ewoz.map -l ewoz.lst
 RMFLAGS		= -f
 
 CC		= cc65
@@ -14,14 +14,11 @@ all: ewoz.hex
 ewoz.hex: ewoz.bin
 	srec_cat ewoz.bin -binary -offset=0x200 -o ewoz.hex -intel -address-length=2
 
-ewoz.bin: ewoz.o
-	$(CL) $(LFLAGS) -C gw-r65x1qsbc-1.cfg -o ewoz.bin ewoz.o
-
-ewoz.o: ewoz.a65
-	$(CA) $(AFLAGS) -l ewoz.lst -o ewoz.o ewoz.a65
+ewoz.bin: ewoz.a65
+	$(CL) $(LFLAGS) -C gw-r65x1qsbc-1.cfg -o ewoz.bin ewoz.a65 IO_Modules/tan-glitchbus-scc.lib
 
 clean:
-	$(RM) $(RMFLAGS) *.o *.bin *.hex *.lst
+	$(RM) $(RMFLAGS) *.o *.bin *.hex *.lst *.map
 
 copy: ewoz.bin
 	cp ewoz.bin ../r6501q_romfs/binaries/ewoz_ram.bin

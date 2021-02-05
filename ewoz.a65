@@ -13,6 +13,8 @@
 ;    http://www.tangentideas.info/
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+.AUTOIMPORT +
+
 .IFNDEF CONFIGURED	;Set default options if assembler wasn't passed any definitions
 	;I/O module selection
 	;Uncomment one of the desired I/O modules
@@ -118,17 +120,22 @@ SETUP:	SEI			;Disable interrupts
 .ELSE
 .segment "RAM_CODE"
 .ENDIF
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;SETIRQ -- Set IRQ Vector
 ;
 ;Sets up the default user IRQ vector and display the
 ;  initial sign-on message.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-SETIRQ:	LDA	#<DEFIRQ	;Initialize default IRQ handler
+SETIRQ:
+.IFDEF	SCC_BRK_IRQ
+	JSR	IOIRQI		;Init the I/O module's interrupt registers
+	CLI			;Clear the IRQ inhibit flag
+.ELSE
+	LDA	#<DEFIRQ	;Initialize default IRQ handler
 	STA	USRIRQLO
 	LDA	#>DEFIRQ
 	STA	USRIRQHI
+.ENDIF
 
 	LDA	#<LOGMSG	;Set up pointers to signon message
 	STA	MSGL
@@ -432,10 +439,6 @@ DEFIRQ:	PHA
 
 	PLA
 	RTI
-
-.IFDEF IO_SCC
-	.INCLUDE "IO_Modules/tan-glitchbus-scc_io.a65"
-.ENDIF
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

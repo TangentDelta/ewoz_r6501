@@ -1,8 +1,4 @@
-.IFDEF RUN_ROM
-.EXPORT IOINI		;Only export IOINI if we're assembling to run from ROM
-.ENDIF
-
-.EXPORT CIN,COUT	;Console I/O routines are always exported
+.EXPORT CIN,COUT
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;System Hardware Equates
@@ -15,79 +11,7 @@ IOPAGE		= $EF00		;R65X1Q SBC Glitchbus I/O page
 SCCC		= IOPAGE+0	;SCC Command Register A
 SCCD		= IOPAGE+1	;SCC Data Register A
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Rockwell 6501/6511 Equates
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-.IFNDEF PORTA
-PORTA		= $00		;Port A data register
-.ENDIF
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Miscellaneous Equates
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-BRMASK		= $30		;Mask for SW2 positions 3 and 4
-
-
-;The following routines are only included if we're assembling to run from ROM
-.IFDEF RUN_ROM
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;IOINI -- Input/Output Module Initilization
-;
-;Initializes and configures this I/O module.
-;Sends the initial configuration sequence to the SCC and
-;  then sets the baud rate based on the R65X1Q SBC's
-;  configuration DIP switches.
-;
-;Pre: I/O module is not initialized
-;Post: I/O module is initialized and configured
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-IOINI:	LDX	#((ISEND-INISCC))
-	LDY	#$00
-
-INILUP:	LDA	INISCC,Y	;Get the next SCC command byte in the sequence
-	STA	SCCC		;Store it to the SCC's command register
-	INY
-	DEX
-	BNE	INILUP		;Do it again if we haven't reached the end of the sequence (X = 0)
-	;Fall through into SETBR
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;SETBR -- Set the serial channel bitrate
-;
-;This routine reads from Port A and uses the value to 
-;select a bitrate for the current SCC channel. The 
-;speed will depend on the frequency supplied to the SCC
-;on the ~RTXC pins.
-;
-;
-;On the Glitch Works R65X1Q SBC, Port A bit 5 is connected
-;to SW2 position 3, bit 4 is connect to SW2 position 4.
-;
-;The bitrate table is stored at BRTAB.
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-SETBR:	LDA	PORTA		;Get Port A contents
-	AND	#BRMASK		;Mask off bitrate switches 
-				;SW2-3 = PA5, SW2-4 = PA4
-	CLC
-	ROR			;SW2-3 = bit 4, SW2-4 = bit 3
-	ROR			;SW2-3 = bit 3, SW2-4 = bit 2
-	ROR			;SW2-3 = bit 2, SW2-4 = bit 1
-	TAX			;X = high byte offset into BRTAB
-	LDA	#$0C		;Select SCC WR13 (time constant high byte)
-	STA	SCCC
-	LDA	BRTAB,X		;A = high byte of time constant
-	STA	SCCC
-
-	INX			;X = low byte offset into BRTAB
-	LDA	#$0D		;Select SCC WR12 (time constant low byte)
-	STA	SCCC
-	LDA	BRTAB,X		;A = low byte of time constant
-	STA	SCCC
-
-	RTS
-
-.ENDIF
-
+.segment "RAM_CODE"
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;CIN -- Get a character from the console
 ;
@@ -117,43 +41,3 @@ COUT1:	LDA	SCCC		;Get SCC status
 	PLA			;A = character to print
 	STA	SCCD		;Send it to SCC
 	RTS
-
-;The following data is only included if assembling to run from ROM
-.IFDEF RUN_ROM
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Zilog SCC Init Sequence
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-INISCC:	.byte	$09,$C0		;Reset hardware
-
-	.byte	$04,$44
-	.byte	$03,$C1
-	.byte	$05,$EA
-
-	.byte	$0B,$56
-
-	.byte	$0E,$01
-
-	.byte	$0F,$00
-ISEND:				;Init sequence end pointer
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Serial Channel Bitrate Table
-;
-;See SETBR for usage. The values in this table are obtained
-;  using the following formula:
-;  ;(SCK/BR*2*(D))-2
-;Where:
-;  SCK = Serial Clock (4.9152MHz)
-;  BR  = Desired Baudrate (9600 baud)
-;  D   = Clock Divider (/16)
-;
-;Noted bitrates are for a 4.9152MHz clock
-;
-;TODO: Have the assembler calculate these for me
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-BRTAB:	.word	$000E		;9600  bps
-	.word	$0006		;19200 bps
-	.word	$0002		;38400 bps
-	.word	$0002		;38400 bps
-
-.ENDIF
