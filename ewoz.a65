@@ -1,3 +1,9 @@
+.SEGMENT "CODE"
+
+;Console I/O routines
+.IMPORT CIOINI,SETBR,CIN,COUT
+;R65X1Q I/O definitions
+.IMPORTZP PORTA,MCR
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;EWOZ Extended Woz Monitor for R6501/R6511
 ;
@@ -10,37 +16,14 @@
 ;Modified to use a Zilog Z85C30 SCC
 ;
 ;Initial R6501 work by TangentDelta:
-;    http://www.tangentideas.info/
+;    http://www.tangent-ideas.com/
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-.AUTOIMPORT +
+;Running mode selection
+;Uncomment one of the desired running modes
+RUN_RAM = 1	;Loads into and runs from RAM. Doesn't perform cold boot operations
+;RUN_ROM = 1	;Runs from ROM. Performs cold boot operations.
 
-.IFNDEF CONFIGURED	;Set default options if assembler wasn't passed any definitions
-	;I/O module selection
-	;Uncomment one of the desired I/O modules
-	IO_SCC = 1	;Zilog SCC Board
-	;IO_R65X1Q = 1	;Rockwell R65X1Q built-in I/O
-
-	;Running mode selection
-	;Uncomment one of the desired running modes
-	RUN_RAM = 1	;Loads into and runs from RAM. Doesn't perform cold boot operations
-	;RUN_ROM = 1	;Runs from ROM. Performs cold boot operations.
-.ENDIF
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Rockwell 6501/6511 Equates
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-PORTA		= $00		;Port A data register
-
-MCR		= $14		;Mode Control Register
-
-SCCR		= $15		;Serial Communications Control Register
-SCSR		= $16		;Serial Communications Status Register
-SCDAT		= $17		;Serial Channel Data Register
-
-LATCHAL		= $18		;Lower Latch A (write)
-LATCHAH		= $19		;Upper Latch A (write)
-COUNTAH		= $19		;Upper Counter A (read)
-COUNTAL		= $1A		;Lower Counter A (read)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;ASCII Equates
@@ -97,15 +80,9 @@ CKSUMFLAG	= $4F
 IN		= $0100		;Input buffer
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Adjust origin in the Makefile.
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;SETUP -- Perform cold boot operations
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 .IFDEF RUN_ROM
-.segment "ROM_CODE"
 SETUP:	SEI			;Disable interrupts
 	CLD			;Clear decimal arithmetic mode.
 	LDX	#$FF		;Set up stack pointer
@@ -115,10 +92,15 @@ SETUP:	SEI			;Disable interrupts
 	STA	MCR		;Port D tristate, Port B latch disabled, both
 				;timers in inverval mode.
 
-	JSR	IOINI		;Initialize the I/O module
+	JSR	CIOINI		;Initialize the console I/O module
 
-.ELSE
-.segment "RAM_CODE"
+	LDA	PORTA
+	AND	#$30		;Mask off the baudrate bits
+	LSR	A		;Shift down to lower bits of A
+	LSR	A
+	LSR	A
+	LSR	A
+	JSR	SETBR		;Set the baudrate for the console I/O module
 .ENDIF
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;SETIRQ -- Set IRQ Vector
@@ -444,13 +426,7 @@ DEFIRQ:	PHA
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;Message Strings
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-LOGMSG:	.byte	$0d,$0a, "EWOZ 1.2 "
-
-.IFDEF IO_SCC
-	.byte	"With SCC Support", CR, LF, NULL
-.ELSE
-	.byte	"for Glitch Works R65X1Q SBC", CR, LF, NULL
-.ENDIF
+LOGMSG:	.byte	$0d,$0a, "EWOZ 1.2 for Glitch Works R65X1Q SBC", CR, LF, NULL
 
 ISTMSG:	.byte	$0d,$0a, "Start Hex code transfer", CR, LF, NULL
 IOKMSG:	.byte	$0d,$0a, "Hex Imported OK", CR, LF, NULL

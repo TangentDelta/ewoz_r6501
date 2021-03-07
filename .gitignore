@@ -1,6 +1,6 @@
-*bin
-*hex
-*map
-*o
-*lst
-*map
+*.bin
+*.hex
+*.map
+*.o
+*.lst
+*.map
